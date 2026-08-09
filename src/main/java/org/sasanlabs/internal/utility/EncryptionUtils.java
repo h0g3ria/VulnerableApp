@@ -1,23 +1,37 @@
 package org.sasanlabs.internal.utility;
 
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
 import java.security.InvalidKeyException;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.KeySpec;
+import javax.crypto.AEADBadTagException;
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 import org.sasanlabs.internal.utility.exception.EncryptionException;
 
 /** This class contains methods related to encryption. */
 public class EncryptionUtils {
+
+    private static final int GCM_TAG_LENGTH_BITS = 128;
+    private static final int GCM_NONCE_LENGTH_BYTES = 12;
+    private static final SecretKey LEVEL_4_KEY;
+
+    static {
+        byte[] keyBytes = new byte[32];
+        new SecureRandom().nextBytes(keyBytes);
+        LEVEL_4_KEY = new SecretKeySpec(keyBytes, "AES");
+    }
 
     private EncryptionUtils() {}
 
@@ -63,6 +77,54 @@ public class EncryptionUtils {
         }
         String reversed = new StringBuilder(rawPassword).reverse().toString();
         return EncodingUtils.encodeBase64(reversed);
+    }
+
+    public static String encryptLevel4(String plaintext) throws EncryptionException {
+        try {
+            byte[] nonce = new byte[GCM_NONCE_LENGTH_BYTES];
+            new SecureRandom().nextBytes(nonce);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(
+                    Cipher.ENCRYPT_MODE,
+                    LEVEL_4_KEY,
+                    new GCMParameterSpec(GCM_TAG_LENGTH_BITS, nonce));
+            byte[] ciphertext = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
+            return java.util.Base64.getEncoder().encodeToString(nonce)
+                    + ":"
+                    + java.util.Base64.getEncoder().encodeToString(ciphertext);
+        } catch (GeneralSecurityException e) {
+            throw new EncryptionException("AES-GCM encryption failed", e);
+        }
+    }
+
+    public static boolean matchesLevel4(String plaintext, String encodedCiphertext)
+            throws EncryptionException {
+        if (plaintext == null || encodedCiphertext == null) {
+            return false;
+        }
+        String[] parts = encodedCiphertext.split(":", 2);
+        if (parts.length != 2) {
+            return false;
+        }
+        try {
+            byte[] nonce = java.util.Base64.getDecoder().decode(parts[0]);
+            byte[] ciphertext = java.util.Base64.getDecoder().decode(parts[1]);
+            if (nonce.length != GCM_NONCE_LENGTH_BYTES) {
+                return false;
+            }
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(
+                    Cipher.DECRYPT_MODE,
+                    LEVEL_4_KEY,
+                    new GCMParameterSpec(GCM_TAG_LENGTH_BITS, nonce));
+            byte[] decrypted = cipher.doFinal(ciphertext);
+            return MessageDigest.isEqual(
+                    plaintext.getBytes(StandardCharsets.UTF_8), decrypted);
+        } catch (AEADBadTagException | IllegalArgumentException e) {
+            return false;
+        } catch (GeneralSecurityException e) {
+            throw new EncryptionException("AES-GCM verification failed", e);
+        }
     }
 
     private static final byte[] salt = new byte[16];
