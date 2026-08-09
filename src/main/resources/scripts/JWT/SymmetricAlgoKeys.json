@@ -8,6 +8,11 @@
 		"algorithm": "HS256",
 		"strength": "HIGH",
 		"key": "12309jansdu912jnas^90nqwq!@!#oqihr82343n"
+	},
+	{
+		"algorithm": "HS512",
+		"strength": "HIGH",
+		"key": "d7J!2mQ9#vL4xP8@cR6sW1kN5zT0bF3hY7uA9eG2qC8iO4pS6jM1wX5rK0nV3lB7"
 	}
 	
 ]
